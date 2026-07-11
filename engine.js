@@ -39,8 +39,18 @@ export class AudioEngine {
     this.oscCos = this.ctx.createOscillator();
     this.oscCos.setPeriodicWave(cosWave);
     const t0 = this.ctx.currentTime + 0.05;
+    this.oscStartTime = t0;
     this.oscSin.start(t0); this.oscCos.start(t0);
     this.setPhase(0);
+
+    // 위상 캡처용 워크릿 (샘플 단위 타임스탬프) — 실패해도 앱은 탭 방식으로 동작
+    this.workletOk = false;
+    try {
+      const code = "class Cap extends AudioWorkletProcessor{process(inputs){const c=inputs[0][0];if(c)this.port.postMessage({f:currentFrame,d:c.slice(0)});return true;}}registerProcessor('cap',Cap);";
+      await this.ctx.audioWorklet.addModule(
+        URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+      this.workletOk = true;
+    } catch (_) {}
   }
 
   // ---- 마이크 (측정 순간에만) ----
@@ -65,9 +75,22 @@ export class AudioEngine {
     this.analyser.fftSize = 32768;
     this.analyser.smoothingTimeConstant = 0.5;
     this.srcNode.connect(this.analyser);
+    // 위상 캡처 시작
+    this.capChunks = [];
+    if (this.workletOk) {
+      try {
+        this.capNode = new AudioWorkletNode(this.ctx, 'cap');
+        this.capNode.port.onmessage = (e) => {
+          if (this.capChunks.length * 128 < this.ctx.sampleRate * 4) // 최대 4초
+            this.capChunks.push(e.data);
+        };
+        this.srcNode.connect(this.capNode);
+      } catch (_) { this.capNode = null; }
+    }
   }
 
   micOff() {
+    if (this.capNode) { try { this.capNode.port.onmessage = null; this.capNode.disconnect(); } catch (_) {} this.capNode = null; }
     if (this.srcNode) { try { this.srcNode.disconnect(); } catch (_) {} this.srcNode = null; }
     if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
     this.analyser = null;
@@ -153,6 +176,28 @@ export class AudioEngine {
             this.hMix.disconnect(); } catch (_) {}
       this.hSin = this.hCos = this.hMix = null;
     }
+  }
+
+  // 캡처된 마이크 샘플로 소음의 절대 위상 측정 (컨텍스트 타임라인 기준)
+  // 반환: x(t) ≈ A·cos(2πf·t + φ) 의 φ (deg), 신뢰 불가 시 null
+  computeNoisePhase(freq) {
+    if (!this.capChunks || !this.capChunks.length) return null;
+    const sr = this.ctx.sampleRate;
+    let re = 0, im = 0, n = 0;
+    for (const ch of this.capChunks) {
+      const base = ch.f;
+      const d = ch.d;
+      for (let i = 0; i < d.length; i++) {
+        const ang = 2 * Math.PI * freq * (base + i) / sr;
+        re += d[i] * Math.cos(ang);
+        im -= d[i] * Math.sin(ang);
+        n++;
+      }
+    }
+    if (n < sr * 1.5) return null; // 1.5초 미만이면 신뢰 불가
+    const amp = 2 * Math.hypot(re, im) / n;
+    if (amp < 1e-4) return null;   // 성분이 너무 약함
+    return ((Math.atan2(im, re) * 180 / Math.PI) % 360 + 360) % 360;
   }
 
   teardown() {

@@ -37,18 +37,18 @@ export class AutoPipeline {
       const lv = bandLevels(this.e.analyser, this.e.ctx.sampleRate, BANDS);
       for (let i = 0; i < 4; i++) acc[i] += lv[i];
       fs.push(detectFreqOnce(this.e.analyser, this.e.ctx.sampleRate));
-      // 스피커 재생 가능 대역(150Hz+)과 초저역을 따로 평가
+      // 상쇄 타겟은 스피커 재생 가능 대역(150Hz+)에서만 고른다 — 초저역은 어떤 스피커도 못 냄
       const hiTp = tonalPeakInRange(this.e.analyser, this.e.ctx.sampleRate, 150, 500);
       const loTp = tonalPeakInRange(this.e.analyser, this.e.ctx.sampleRate, 40, 150);
-      // 150Hz+ 피크가 초저역 대비 10dB 이내로 강하면 그쪽을 타겟 (스피커가 재생 가능해야 상쇄 가능)
-      const tp = (hiTp.level >= loTp.level - 10) ? hiTp : loTp;
-      proms.push(tp.prom); pfs.push(tp.freq);
+      proms.push(hiTp.prom); pfs.push(hiTp.freq);
+      this._loProm = loTp.prom; this._loFreq = loTp.freq;
       n++;
       await sleep(200);
       if (this.aborted) return null;
     }
     return { bands: acc.map(v => v / n), freq: median(fs),
-             tonalFreq: median(pfs), prom: median(proms) };
+             tonalFreq: median(pfs), prom: median(proms),
+             loFreq: this._loFreq, loProm: this._loProm };
   }
 
   // ================= 원버튼 스마트 플로우 =================
@@ -67,8 +67,9 @@ export class AutoPipeline {
     const mean = m.bands.reduce((a, b) => a + b, 0) / 4;
     this.lastShape = m.bands.map(v => Math.max(-10, Math.min(10, (v - mean) * 0.8)));
 
-    // ---- 판정: 토널 소음(피크 돌출 ≥ 12dB, 40~320Hz)이면 마스킹 대신 상쇄가 정답 ----
-    if (m.prom >= 12 && m.tonalFreq >= 40 && m.tonalFreq <= 320) {
+    // ---- 판정: 재생 가능 대역(150~500Hz)에 뚜렷한 피크가 있어야만 상쇄 ----
+    if (m.prom >= 10 && m.tonalFreq >= 150 && m.tonalFreq <= 500) {
+      if (this.ui.screen) this.ui.screen('cancel');
       this.mode = 'cancel';
       this.humFreq = m.tonalFreq;
       this.e.setFreq(m.tonalFreq);
@@ -93,7 +94,10 @@ export class AutoPipeline {
       return;
     }
 
-    // ---- 광대역 소음 → 맞춤 마스킹 ----
+    // ---- 상쇄 불가(광대역이거나 핵심이 초저역) → 맞춤 마스킹 ----
+    if (m.loProm >= 12 && m.loFreq < 150) {
+      this.ui.error('주 소음(' + m.loFreq.toFixed(0) + 'Hz)은 스피커가 재생할 수 없는 초저역이라 상쇄가 물리적으로 불가합니다. 마스킹으로 전환합니다. 이 성분을 지우려면 ANC 헤드폰이 정답입니다.');
+    }
     this.e.startMasking(this.lastShape, this.maskLevel);
     this.state = 'mask';
     this.ui.ring('mask');
