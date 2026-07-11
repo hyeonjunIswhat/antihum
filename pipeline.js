@@ -1,6 +1,6 @@
 // pipeline.js — 세션 로직: 마스킹 / 험 상쇄 / 기능테스트
 
-import { detectFreqOnce, bandLevels, sleep, median } from './dsp.js';
+import { detectFreqOnce, bandLevels, tonalPeak, sleep, median } from './dsp.js';
 
 export const VOL = 0.4;
 const BANDS = [[40, 160], [160, 500], [500, 1200], [1200, 3000]];
@@ -15,6 +15,8 @@ export class AutoPipeline {
     this.sweepTimer = null;
     this.maskTimer = null;
     this.maskLevel = 0.5;
+    this.cancelVol = 0.15;   // 안티톤은 작게 시작 — 음량 캘리브레이션으로 소음 크기에 맞춤
+    this.lastShape = null;
   }
 
   // ================= 공통: 마이크 측정 =================
@@ -30,17 +32,19 @@ export class AutoPipeline {
 
   async measureSpectrum(ms) {
     const t0 = performance.now(); const acc = [0, 0, 0, 0]; let n = 0;
-    let f = 0; const fs = [];
+    const fs = [], proms = [], pfs = [];
     while (performance.now() - t0 < ms) {
       const lv = bandLevels(this.e.analyser, this.e.ctx.sampleRate, BANDS);
       for (let i = 0; i < 4; i++) acc[i] += lv[i];
       fs.push(detectFreqOnce(this.e.analyser, this.e.ctx.sampleRate));
+      const tp = tonalPeak(this.e.analyser, this.e.ctx.sampleRate);
+      proms.push(tp.prom); pfs.push(tp.freq);
       n++;
       await sleep(200);
       if (this.aborted) return null;
     }
-    f = median(fs);
-    return { bands: acc.map(v => v / n), freq: f };
+    return { bands: acc.map(v => v / n), freq: median(fs),
+             tonalFreq: median(pfs), prom: median(proms) };
   }
 
   // ================= 원버튼 스마트 플로우 =================
@@ -57,33 +61,85 @@ export class AutoPipeline {
     if (!m || this.aborted) return;
 
     const mean = m.bands.reduce((a, b) => a + b, 0) / 4;
-    const shape = m.bands.map(v => Math.max(-10, Math.min(10, (v - mean) * 0.8)));
-    this.e.startMasking(shape, this.maskLevel);
+    this.lastShape = m.bands.map(v => Math.max(-10, Math.min(10, (v - mean) * 0.8)));
 
+    // ---- 판정: 토널 소음(피크 돌출 ≥ 12dB, 40~320Hz)이면 마스킹 대신 상쇄가 정답 ----
+    if (m.prom >= 12 && m.tonalFreq >= 40 && m.tonalFreq <= 320) {
+      this.mode = 'cancel';
+      this.humFreq = m.tonalFreq;
+      this.e.setFreq(m.tonalFreq);
+      this.ui.freq(m.tonalFreq, true);
+      this.ui.status('웅— 소리(' + m.tonalFreq.toFixed(0) + 'Hz)가 주된 소음 — 역위상으로 지웁니다');
+      const c = await this.coarseSweep();
+      if (this.aborted) return;
+      await this.fineSweep(c);
+      if (this.aborted) return;
+      await this.volSweep();
+      if (this.aborted) return;
+      this.finishCancel(minutes);
+      return;
+    }
+
+    // ---- 광대역 소음 → 맞춤 마스킹 ----
+    this.e.startMasking(this.lastShape, this.maskLevel);
     this.state = 'mask';
     this.ui.ring('mask');
     this.ui.freq(m.freq, false);
     this.ui.stage('소음의 결에 맞춘 소리로 덮는 중입니다');
     this.ui.status('조용하게 만드는 중' + (minutes ? ' · ' + minutes + '분 후 자동 종료' : ''));
-
-    // 저주파 대역이 평균보다 6dB 이상 튀고, 지배 주파수가 40~200Hz면 웅— 성분 존재
-    if (shape[0] > 6 && m.freq >= 40 && m.freq <= 200) {
-      this.humFreq = m.freq;
-      this.ui.showHumSuggest(m.freq);
-    }
-
-    if (minutes) {
-      this.maskTimer = setTimeout(() => {
-        this.e.setMaskLevel(0);
-        setTimeout(() => this.ui.onTimerEnd && this.ui.onTimerEnd(), 2000);
-      }, minutes * 60000);
-    }
+    this.armTimer(minutes);
   }
 
-  // 제안 수락 → 마스킹 잠시 멈추고 귀 캘리브레이션 → 완료 후 마스킹+안티톤 동시 재생
+  armTimer(minutes) {
+    if (!minutes) return;
+    this.maskTimer = setTimeout(() => {
+      this.e.setMaskLevel(0);
+      this.e.applyMaster(0);
+      setTimeout(() => this.ui.onTimerEnd && this.ui.onTimerEnd(), 2000);
+    }, minutes * 60000);
+  }
+
+  // 음량 캘리브레이션: 안티톤 크기를 천천히 오르내림 — 가장 조용한 순간 탭
+  async volSweep() {
+    this.state = 'vol';
+    this.ui.stage('음량 맞추는 중 — 가장 조용한 순간 한 번 더 [지금 조용함]');
+    this.ui.tapButton(true);
+    let t = 0;
+    this.sweepTimer = setInterval(() => {
+      if (this.paused) return;
+      t += 0.1;
+      const v = 0.24 + 0.21 * Math.sin(2 * Math.PI * t / 14); // 0.03~0.45, 14초 주기
+      this.cancelVol = v;
+      this.e.applyMaster(v);
+    }, 100);
+    await this.waitTap();
+    this.stopSweep();
+    if (this.aborted) return;
+    this.e.applyMaster(this.cancelVol);
+    this.ui.tapButton(false);
+  }
+
+  finishCancel(minutes) {
+    this.state = 'hold';
+    this.ui.ring('hold');
+    this.ui.stage('웅— 상쇄 고정 완료 — 재생 유지 중');
+    this.ui.status('상쇄 동작 중: ' + this.e.lockedFreq.toFixed(1) + ' Hz');
+    this.ui.showHumSuggest(0, '잔여 소음까지 부드러운 소리로 덮기 (마스킹 추가) →');
+    this.armTimer(minutes);
+  }
+
+  // 상쇄 후 마스킹 추가 (제안 수락)
+  addMask() {
+    this.ui.hideHumSuggest();
+    if (this.lastShape) this.e.startMasking(this.lastShape, this.maskLevel);
+    this.ui.ring('mask');
+    this.ui.stage('웅— 상쇄 + 맞춤 마스킹 동시 재생 중');
+  }
+
+  // (마스킹 중) 제안 수락 → 마스킹 잠시 멈추고 상쇄 캘리브레이션 → 동시 재생
   async addCancel() {
     this.ui.hideHumSuggest();
-    this.e.setMaskLevel(0);                 // 웅— 소리가 들리게 마스킹 일시 정지
+    this.e.setMaskLevel(0);
     this.e.setFreq(this.humFreq);
     this.ui.freq(this.humFreq, true);
     this.ui.stage('웅— 소리에 집중하세요');
@@ -92,10 +148,11 @@ export class AutoPipeline {
     if (this.aborted) return;
     await this.fineSweep(c);
     if (this.aborted) return;
-    this.e.setMaskLevel(this.maskLevel);    // 마스킹 복귀 → 동시 재생
+    await this.volSweep();
+    if (this.aborted) return;
+    this.e.setMaskLevel(this.maskLevel);
     this.ui.ring('mask');
     this.ui.stage('웅— 상쇄 + 맞춤 마스킹 동시 재생 중');
-    this.ui.status('조용하게 만드는 중 · 웅— 상쇄 적용됨');
   }
 
   setMaskLevel(v) {
@@ -129,7 +186,7 @@ export class AutoPipeline {
     this.ui.ring('sweep');
     this.ui.stage('위상 회전 중 — 소음이 가장 작아지는 순간 [지금 조용함]');
     this.ui.tapButton(true);
-    this.e.applyMaster(VOL);
+    this.e.applyMaster(this.cancelVol);
     const degPerTick = 0.9; // 9°/s → 40초 1회전
     let deg = this.e.phaseDeg;
     this.sweepTimer = setInterval(() => {
@@ -163,10 +220,6 @@ export class AutoPipeline {
     const locked = (this.e.phaseDeg - 2 + 360) % 360;
     this.e.setPhase(locked); this.ui.phase(locked);
     this.ui.tapButton(false);
-    this.state = 'hold';
-    this.ui.ring('hold');
-    this.ui.stage('고정 완료 — 재생 유지 중. 음량은 측면 버튼으로.');
-    this.ui.status('험 상쇄 중: ' + this.e.lockedFreq.toFixed(1) + ' Hz · 위상 ' + locked.toFixed(0) + '°');
   }
 
   async holdLoop() {
@@ -186,7 +239,7 @@ export class AutoPipeline {
         await this.fineSweep(c);
       } else {
         this.e.setFreq(oldF * 0.5 + f * 0.5);
-        this.e.applyMaster(this.paused ? 0 : VOL);
+        this.e.applyMaster(this.paused ? 0 : this.cancelVol);
         this.state = 'hold';
         this.ui.ring('hold');
         this.ui.stage('고정 유지 — 재생 중');

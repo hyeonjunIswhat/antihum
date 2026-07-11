@@ -25,8 +25,10 @@ async function startSmart() {
 
 async function acceptHum() {
   if (!pipe) return;
-  try { await pipe.addCancel(); }
-  catch (e) { ui.error('오류: ' + e.message); }
+  try {
+    if (pipe.state === 'hold') pipe.addMask();   // 상쇄 후: 마스킹 추가
+    else await pipe.addCancel();                  // 마스킹 중: 상쇄 추가
+  } catch (e) { ui.error('오류: ' + e.message); }
 }
 
 async function startDemo() {
@@ -39,8 +41,8 @@ async function startDemo() {
 function pause() {
   if (!pipe || !pipe.running) return;
   pipe.paused = !pipe.paused;
-  if (pipe.mode === 'mask') engine.setMaskLevel(pipe.paused ? 0 : pipe.maskLevel);
-  else engine.applyMaster(pipe.paused ? 0 : VOL);
+  engine.setMaskLevel(pipe.paused ? 0 : pipe.maskLevel);
+  engine.applyMaster(pipe.paused ? 0 : (pipe.mode === 'cancel' ? pipe.cancelVol : 0));
   ui.paused(pipe.paused);
   ui.status(pipe.paused ? '대기 중 — 출력 정지, 설정 유지' : '재개');
 }

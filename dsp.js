@@ -55,6 +55,22 @@ export function makeBrownNoise(ctx, seconds = 8) {
   return buf;
 }
 
+// 토널성: 40~2000Hz에서 최대 피크가 스펙트럼 바닥(중앙값) 대비 몇 dB 돌출했는지
+export function tonalPeak(analyser, sampleRate) {
+  const n = analyser.frequencyBinCount;
+  const data = new Float32Array(n);
+  analyser.getFloatFrequencyData(data);
+  const binHz = sampleRate / analyser.fftSize;
+  const lo = Math.max(1, Math.floor(40 / binHz));
+  const hi = Math.min(n - 2, Math.ceil(2000 / binHz));
+  const seg = [];
+  let pk = lo;
+  for (let i = lo; i <= hi; i++) { seg.push(data[i]); if (data[i] > data[pk]) pk = i; }
+  seg.sort((a, b) => a - b);
+  const floor = seg[Math.floor(seg.length / 2)];
+  return { freq: pk * binHz, prom: data[pk] - floor };
+}
+
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 export function median(arr) {
   const s = [...arr].sort((a, b) => a - b);

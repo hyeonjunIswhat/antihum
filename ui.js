@@ -25,7 +25,10 @@ export const ui = {
     this.els.ring.className = 'ring' + (state && state !== 'idle' ? ' ' + state : '');
   },
   tapButton(show){ this.els.tapBtn.style.display = show ? 'block' : 'none'; },
-  showHumSuggest(f){ this.els.humSuggest.style.display = 'block'; },
+  showHumSuggest(f, text){
+    if (text) this.els.humSuggest.innerHTML = '💡 ' + text;
+    this.els.humSuggest.style.display = 'block';
+  },
   hideHumSuggest(){ this.els.humSuggest.style.display = 'none'; },
   screen(mode){ // 'idle' | 'mask' | 'cancel'
     const running = mode !== 'idle';
