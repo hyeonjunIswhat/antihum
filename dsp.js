@@ -1,6 +1,5 @@
-// dsp.js — 신호처리 유틸 (스모크테스트 검증 완료 로직)
+// dsp.js — 신호처리 유틸
 
-// 특정 주파수 성분의 레벨(dB) — Goertzel
 export function goertzelDb(buf, freq, sampleRate) {
   const k = 2 * Math.cos(2 * Math.PI * freq / sampleRate);
   let s1 = 0, s2 = 0;
@@ -12,11 +11,10 @@ export function goertzelDb(buf, freq, sampleRate) {
   return 20 * Math.log10(Math.max(Math.sqrt(p) / buf.length, 1e-9));
 }
 
-// FFT 피크 검출 (40–400Hz, 로그 도메인 포물선 보간)
 export function detectFreqOnce(analyser, sampleRate) {
   const bins = analyser.frequencyBinCount;
   const data = new Float32Array(bins);
-  analyser.getFloatFrequencyData(data); // dB 스케일
+  analyser.getFloatFrequencyData(data);
   const binHz = sampleRate / analyser.fftSize;
   const lo = Math.max(1, Math.floor(40 / binHz));
   const hi = Math.min(bins - 2, Math.ceil(400 / binHz));
@@ -28,8 +26,36 @@ export function detectFreqOnce(analyser, sampleRate) {
   return f;
 }
 
-export const sleep = ms => new Promise(r => setTimeout(r, ms));
+// 대역별 평균 레벨(dB) — 마스킹 스펙트럼 셰이핑용
+export function bandLevels(analyser, sampleRate, bands) {
+  const n = analyser.frequencyBinCount;
+  const data = new Float32Array(n);
+  analyser.getFloatFrequencyData(data);
+  const binHz = sampleRate / analyser.fftSize;
+  return bands.map(([lo, hi]) => {
+    const a = Math.max(1, Math.floor(lo / binHz));
+    const b = Math.min(n - 1, Math.ceil(hi / binHz));
+    let s = 0, c = 0;
+    for (let i = a; i <= b; i++) { s += data[i]; c++; }
+    return c ? s / c : -100;
+  });
+}
 
+// 브라운 노이즈 버퍼(-6dB/oct) — 팬 소음과 유사한 기울기
+export function makeBrownNoise(ctx, seconds = 8) {
+  const sr = ctx.sampleRate, n = Math.floor(sr * seconds);
+  const buf = ctx.createBuffer(1, n, sr);
+  const d = buf.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.random() * 2 - 1;
+    last = (last + 0.02 * w) / 1.02;
+    d[i] = last * 3.5;
+  }
+  return buf;
+}
+
+export const sleep = ms => new Promise(r => setTimeout(r, ms));
 export function median(arr) {
   const s = [...arr].sort((a, b) => a - b);
   return s[Math.floor(s.length / 2)];

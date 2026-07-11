@@ -1,33 +1,45 @@
-// ui.js — DOM 바인딩 (v2: 탭 버튼 추가, 잔류 게이지 제거 — 귀가 센서)
+// ui.js — DOM 바인딩 + 링 상태
 const $ = id => document.getElementById(id);
 
 export const ui = {
-  els: {},
+  els: {}, onTimerEnd: null,
   init() {
-    for (const id of ['status','freq','flabel','err','stage','phaseRO',
-      'startBtn','tapBtn','pauseBtn','stopBtn']) this.els[id] = $(id);
+    for (const id of ['status','freq','flabel','err','stage','phaseRO','ring','ringDot',
+      'maskBtn','cancelBtn','demoBtn','tapBtn','pauseBtn','stopBtn',
+      'modes','runBtns','maskCtrl','lvl','lvlRO']) this.els[id] = $(id);
+    this.chips = Array.from(document.querySelectorAll('.chip'));
   },
   status(t){ this.els.status.textContent = t; },
   stage(t){ this.els.stage.textContent = t; },
   error(html){ this.els.err.innerHTML = html; },
   freq(f, locked){
-    this.els.freq.textContent = f > 0 ? f.toFixed(1) + ' Hz' : '— Hz';
+    this.els.freq.textContent = f > 0 ? f.toFixed(1) : '—';
     this.els.freq.classList.toggle('on', !!locked);
-    this.els.flabel.textContent = locked ? '타겟 고정' : '타겟 주파수';
+    this.els.flabel.textContent = f > 0 ? 'Hz' : 'READY';
   },
-  phase(d){ this.els.phaseRO.textContent = d.toFixed(0) + '°'; },
-  tapButton(show){
-    this.els.tapBtn.style.display = show ? 'block' : 'none';
+  phase(d){
+    this.els.phaseRO.textContent = d == null ? '' : '위상 ' + d.toFixed(0) + '°';
+    this.els.ringDot.style.transform = 'rotate(' + (d || 0) + 'deg) translateY(-105px)';
   },
-  reset(){
-    this.freq(0, false);
-    this.els.phaseRO.textContent = '—';
-    this.stage('');
+  ring(state){ // 'idle'|'measure'|'mask'|'sweep'|'hold'
+    this.els.ring.className = 'ring' + (state && state !== 'idle' ? ' ' + state : '');
   },
-  buttons(running, paused){
-    this.els.startBtn.disabled = running;
-    this.els.pauseBtn.disabled = !running;
-    this.els.stopBtn.disabled = !running;
-    this.els.pauseBtn.textContent = paused ? '재개' : '대기';
+  tapButton(show){ this.els.tapBtn.style.display = show ? 'block' : 'none'; },
+  screen(mode){ // 'idle' | 'mask' | 'cancel'
+    const running = mode !== 'idle';
+    this.els.modes.style.display = running ? 'none' : 'grid';
+    this.els.runBtns.style.display = running ? 'grid' : 'none';
+    this.els.maskCtrl.style.display = mode === 'mask' ? 'block' : 'none';
+    this.els.demoBtn.disabled = running;
+    if (!running) {
+      this.ring('idle'); this.freq(0, false); this.phase(null);
+      this.stage(''); this.tapButton(false);
+      this.els.pauseBtn.textContent = '대기';
+    }
+  },
+  paused(p){ this.els.pauseBtn.textContent = p ? '재개' : '대기'; },
+  selectedMinutes(){
+    const sel = this.chips.find(c => c.classList.contains('sel'));
+    return sel ? parseInt(sel.dataset.min, 10) : 0;
   }
 };
