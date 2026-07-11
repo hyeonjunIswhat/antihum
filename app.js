@@ -15,19 +15,18 @@ async function boot(mode) {
   ui.screen(mode);
 }
 
-async function startMask() {
+async function startSmart() {
   try {
     await boot('mask');
     pipe.maskLevel = parseFloat(ui.els.lvl.value);
-    await pipe.runMask(ui.selectedMinutes());
+    await pipe.runSmart(ui.selectedMinutes());
   } catch (e) { ui.error('오류: ' + e.message + ' — 마이크 권한 확인'); stop(); }
 }
 
-async function startCancel() {
-  try {
-    await boot('cancel');
-    await pipe.runCancel();
-  } catch (e) { ui.error('오류: ' + e.message + ' — 마이크 권한 확인'); stop(); }
+async function acceptHum() {
+  if (!pipe) return;
+  try { await pipe.addCancel(); }
+  catch (e) { ui.error('오류: ' + e.message); }
 }
 
 async function startDemo() {
@@ -52,14 +51,14 @@ function stop() {
   if (engine) engine.teardown();
   engine = null; pipe = null;
   ui.screen('idle');
-  ui.status('종료됨 — 모드를 선택하세요');
+  ui.status('멈췄습니다 — [지금 조용하게]로 다시 시작');
 }
 
 window.addEventListener('DOMContentLoaded', () => {
   ui.init();
   ui.onTimerEnd = stop;
-  ui.els.maskBtn.addEventListener('click', startMask);
-  ui.els.cancelBtn.addEventListener('click', startCancel);
+  ui.els.maskBtn.addEventListener('click', startSmart);
+  ui.els.humSuggest.addEventListener('click', acceptHum);
   ui.els.demoBtn.addEventListener('click', startDemo);
   ui.els.tapBtn.addEventListener('click', () => pipe && pipe.tap());
   ui.els.pauseBtn.addEventListener('click', pause);

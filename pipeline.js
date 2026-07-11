@@ -43,11 +43,12 @@ export class AutoPipeline {
     return { bands: acc.map(v => v / n), freq: f };
   }
 
-  // ================= 모드 1: 스마트 마스킹 =================
-  async runMask(minutes) {
+  // ================= 원버튼 스마트 플로우 =================
+  // 측정 → 맞춤 마스킹 자동 시작 → 저주파 웅— 성분 강하면 험 상쇄 '제안'
+  async runSmart(minutes) {
     this.mode = 'mask'; this.state = 'measure';
     this.ui.ring('measure');
-    this.ui.stage('소음 스펙트럼 측정 중 (3초, 조용히)');
+    this.ui.stage('소음을 3초 듣는 중…');
     this.e.applyMaster(0);
     await this.e.micOn();
     await sleep(400);
@@ -55,7 +56,6 @@ export class AutoPipeline {
     this.e.micOff();
     if (!m || this.aborted) return;
 
-    // 스펙트럼 → 필터 셰이프: 평균 대비 상대 dB (에너지 큰 대역을 더 두껍게 마스킹)
     const mean = m.bands.reduce((a, b) => a + b, 0) / 4;
     const shape = m.bands.map(v => Math.max(-10, Math.min(10, (v - mean) * 0.8)));
     this.e.startMasking(shape, this.maskLevel);
@@ -63,16 +63,39 @@ export class AutoPipeline {
     this.state = 'mask';
     this.ui.ring('mask');
     this.ui.freq(m.freq, false);
-    this.ui.stage('맞춤 마스킹 재생 중 — 소음의 결을 따라 만든 노이즈입니다');
-    this.ui.status('스마트 마스킹 동작 중' + (minutes ? ' · ' + minutes + '분 후 자동 종료' : ''));
+    this.ui.stage('소음의 결에 맞춘 소리로 덮는 중입니다');
+    this.ui.status('조용하게 만드는 중' + (minutes ? ' · ' + minutes + '분 후 자동 종료' : ''));
+
+    // 저주파 대역이 평균보다 6dB 이상 튀고, 지배 주파수가 40~200Hz면 웅— 성분 존재
+    if (shape[0] > 6 && m.freq >= 40 && m.freq <= 200) {
+      this.humFreq = m.freq;
+      this.ui.showHumSuggest(m.freq);
+    }
 
     if (minutes) {
       this.maskTimer = setTimeout(() => {
-        // 페이드아웃 후 종료 신호
         this.e.setMaskLevel(0);
         setTimeout(() => this.ui.onTimerEnd && this.ui.onTimerEnd(), 2000);
       }, minutes * 60000);
     }
+  }
+
+  // 제안 수락 → 마스킹 잠시 멈추고 귀 캘리브레이션 → 완료 후 마스킹+안티톤 동시 재생
+  async addCancel() {
+    this.ui.hideHumSuggest();
+    this.e.setMaskLevel(0);                 // 웅— 소리가 들리게 마스킹 일시 정지
+    this.e.setFreq(this.humFreq);
+    this.ui.freq(this.humFreq, true);
+    this.ui.stage('웅— 소리에 집중하세요');
+    await sleep(1200);
+    const c = await this.coarseSweep();
+    if (this.aborted) return;
+    await this.fineSweep(c);
+    if (this.aborted) return;
+    this.e.setMaskLevel(this.maskLevel);    // 마스킹 복귀 → 동시 재생
+    this.ui.ring('mask');
+    this.ui.stage('웅— 상쇄 + 맞춤 마스킹 동시 재생 중');
+    this.ui.status('조용하게 만드는 중 · 웅— 상쇄 적용됨');
   }
 
   setMaskLevel(v) {

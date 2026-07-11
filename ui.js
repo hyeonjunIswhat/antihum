@@ -5,7 +5,7 @@ export const ui = {
   els: {}, onTimerEnd: null,
   init() {
     for (const id of ['status','freq','flabel','err','stage','phaseRO','ring','ringDot',
-      'maskBtn','cancelBtn','demoBtn','tapBtn','pauseBtn','stopBtn',
+      'maskBtn','demoBtn','humSuggest','tapBtn','pauseBtn','stopBtn',
       'modes','runBtns','maskCtrl','lvl','lvlRO']) this.els[id] = $(id);
     this.chips = Array.from(document.querySelectorAll('.chip'));
   },
@@ -25,6 +25,8 @@ export const ui = {
     this.els.ring.className = 'ring' + (state && state !== 'idle' ? ' ' + state : '');
   },
   tapButton(show){ this.els.tapBtn.style.display = show ? 'block' : 'none'; },
+  showHumSuggest(f){ this.els.humSuggest.style.display = 'block'; },
+  hideHumSuggest(){ this.els.humSuggest.style.display = 'none'; },
   screen(mode){ // 'idle' | 'mask' | 'cancel'
     const running = mode !== 'idle';
     this.els.modes.style.display = running ? 'none' : 'grid';
@@ -33,7 +35,7 @@ export const ui = {
     this.els.demoBtn.disabled = running;
     if (!running) {
       this.ring('idle'); this.freq(0, false); this.phase(null);
-      this.stage(''); this.tapButton(false);
+      this.stage(''); this.tapButton(false); this.hideHumSuggest();
       this.els.pauseBtn.textContent = '대기';
     }
   },

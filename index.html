@@ -17,7 +17,7 @@
   <h1>ANTI<b>HUM</b></h1>
   <span class="tagline">에어컨 소음 완화</span>
 </div>
-<div class="status" id="status">방 소음을 3초 듣고, 그 결에 맞춰 조용하게 만듭니다</div>
+<div class="status" id="status">소음을 3초 듣고, 그 결에 맞춰 조용하게 만듭니다</div>
 
 <div class="ring-wrap">
   <div class="ring" id="ring">
@@ -51,14 +51,17 @@
 
 <div class="modes" id="modes">
   <button class="mode-btn" id="maskBtn">
-    <span>스마트 마스킹<small>소음 스펙트럼을 측정해 맞춤 노이즈로 덮기 · 팬 소음에 효과</small></span>
-    <span class="arr">▶</span>
-  </button>
-  <button class="mode-btn" id="cancelBtn">
-    <span>험 상쇄 <small>웅— 하는 저주파를 역위상으로 지우기 · 귀로 2번 탭 (베타)</small></span>
+    <span>지금 조용하게<small>소음을 3초 듣고 알아서 처리합니다</small></span>
     <span class="arr">▶</span>
   </button>
 </div>
+
+<button id="humSuggest" style="display:none;width:100%;margin-top:12px;padding:16px;
+  font-size:14px;font-weight:600;background:#1b2733;color:#e8edf2;
+  border:1px solid #2e5a7a;border-radius:12px;text-align:left;line-height:1.5;">
+  💡 웅— 하는 저주파 소음이 감지됐어요.<br>
+  <span style="color:#5adbb5;">탭 2번으로 마저 지워보기 →</span>
+</button>
 
 <div class="run-btns" id="runBtns">
   <button id="pauseBtn">대기</button>
