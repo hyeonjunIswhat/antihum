@@ -45,6 +45,8 @@ export class AudioEngine {
 
   // ---- 마이크 (측정 순간에만) ----
   async micOn() {
+    // 세션도 시분할: 캡처 직전에만 play-and-record (playback 세션은 마이크 캡처 거부)
+    try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (_) {}
     const micOpts = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: micOpts });
     try {

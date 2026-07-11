@@ -1,5 +1,5 @@
 // sw.js — 오프라인 캐시 (앱 셸)
-const CACHE = 'antihum-final-1';
+const CACHE = 'antihum-final-2';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './ui.js',
   './pipeline.js', './engine.js', './dsp.js', './manifest.webmanifest',
   './icon-192.png', './icon-512.png'];
