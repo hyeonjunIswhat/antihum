@@ -1,6 +1,6 @@
 // pipeline.js — 세션 로직: 마스킹 / 험 상쇄 / 기능테스트
 
-import { detectFreqOnce, bandLevels, tonalPeak, sleep, median } from './dsp.js';
+import { detectFreqOnce, bandLevels, tonalPeak, tonalPeakInRange, sleep, median } from './dsp.js';
 
 export const VOL = 0.4;
 const BANDS = [[40, 160], [160, 500], [500, 1200], [1200, 3000]];
@@ -37,7 +37,11 @@ export class AutoPipeline {
       const lv = bandLevels(this.e.analyser, this.e.ctx.sampleRate, BANDS);
       for (let i = 0; i < 4; i++) acc[i] += lv[i];
       fs.push(detectFreqOnce(this.e.analyser, this.e.ctx.sampleRate));
-      const tp = tonalPeak(this.e.analyser, this.e.ctx.sampleRate);
+      // 스피커 재생 가능 대역(150Hz+)과 초저역을 따로 평가
+      const hiTp = tonalPeakInRange(this.e.analyser, this.e.ctx.sampleRate, 150, 500);
+      const loTp = tonalPeakInRange(this.e.analyser, this.e.ctx.sampleRate, 40, 150);
+      // 150Hz+ 피크가 초저역 대비 10dB 이내로 강하면 그쪽을 타겟 (스피커가 재생 가능해야 상쇄 가능)
+      const tp = (hiTp.level >= loTp.level - 10) ? hiTp : loTp;
       proms.push(tp.prom); pfs.push(tp.freq);
       n++;
       await sleep(200);
@@ -70,6 +74,15 @@ export class AutoPipeline {
       this.e.setFreq(m.tonalFreq);
       this.ui.freq(m.tonalFreq, true);
       this.ui.status('웅— 소리(' + m.tonalFreq.toFixed(0) + 'Hz)가 주된 소음 — 역위상으로 지웁니다');
+      // 확인음: 타겟 주파수를 1.2초 크게 — 이 소리가 스피커에서 들려야 정상
+      this.ui.stage('확인음 재생 — 웅— 소리가 스피커에서 들려야 합니다');
+      this.e.applyMaster(0.4);
+      await sleep(1200);
+      this.e.applyMaster(0);
+      await sleep(400);
+      if (this.aborted) return;
+      if (m.tonalFreq < 150)
+        this.ui.error('참고: ' + m.tonalFreq.toFixed(0) + 'Hz는 매우 낮은 소리라 작은 스피커에서는 확인음이 안 들릴 수 있습니다. 안 들렸다면 저음이 되는 스피커가 필요합니다.');
       const c = await this.coarseSweep();
       if (this.aborted) return;
       await this.fineSweep(c);
