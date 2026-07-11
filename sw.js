@@ -1,5 +1,5 @@
 // sw.js — 네트워크 우선: 배포 즉시 반영, 오프라인 시에만 캐시 사용
-const CACHE = 'antihum-v8';
+const CACHE = 'antihum-v9';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './ui.js',
   './pipeline.js', './engine.js', './dsp.js', './manifest.webmanifest',
   './icon-192.png', './icon-512.png'];

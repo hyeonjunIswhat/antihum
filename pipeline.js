@@ -15,7 +15,7 @@ export class AutoPipeline {
     this.sweepTimer = null;
     this.maskTimer = null;
     this.maskLevel = 0.5;
-    this.cancelVol = 0.15;   // 안티톤은 작게 시작 — 음량 캘리브레이션으로 소음 크기에 맞춤
+    this.cancelVol = 0.5;    // 스윕 볼륨 = 진단음과 동일 (저음 약한 스피커 대응)
     this.lastShape = null;
   }
 
@@ -77,16 +77,21 @@ export class AutoPipeline {
       this.ui.status('웅— 소리(' + m.tonalFreq.toFixed(0) + 'Hz)가 주된 소음 — 역위상으로 지웁니다');
       // 3단 진단음: 높은 삐(880) → 중간 삐(440) → 타겟 웅 — 어디까지 들리는지로 원인 판별
       this.ui.stage('진단음 3개: 삐(높음) → 삐(중간) → 웅(타겟) — 몇 개 들리는지 세어보세요');
-      for (const [f, ms] of [[880, 600], [440, 600], [m.tonalFreq, 1200]]) {
+      for (const [f, ms] of [[880, 600], [440, 600], [m.tonalFreq, 1400]]) {
         this.e.setFreq(f);
         this.e.applyMaster(0.5);
-        await sleep(ms);
+        if (f === m.tonalFreq) {
+          // 웅 소리를 내는 동안 위상 한 바퀴 — 끊기지 않아야 위상 회로 정상
+          for (let d = 0; d <= 360; d += 30) { this.e.setPhase(d); await sleep(ms / 13); }
+        } else {
+          await sleep(ms);
+        }
         this.e.applyMaster(0);
         await sleep(300);
         if (this.aborted) return;
       }
       this.e.setFreq(m.tonalFreq);
-      this.ui.error('진단: 삐 2개만 들리고 웅이 안 들리면 = 스피커가 저음 재생 불가(하드웨어). '
+      this.ui.error('진단: 웅 소리가 중간에 끊겼다면 알려주세요(위상 회로 문제). 삐만 들리고 웅이 전혀 안 들리면 = 스피커 저음 한계. '
         + '3개 전부 안 들리면 = 출력 버그(알려주세요). 3개 다 들리면 = 정상, 계속 진행하세요.');
       const c = await this.coarseSweep();
       if (this.aborted) return;
@@ -129,7 +134,7 @@ export class AutoPipeline {
     this.sweepTimer = setInterval(() => {
       if (this.paused) return;
       t += 0.1;
-      const v = 0.24 + 0.21 * Math.sin(2 * Math.PI * t / 14); // 0.03~0.45, 14초 주기
+      const v = 0.45 + 0.4 * Math.sin(2 * Math.PI * t / 14); // 0.05~0.85, 14초 주기
       this.cancelVol = v;
       this.e.applyMaster(v);
     }, 100);
