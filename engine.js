@@ -200,6 +200,26 @@ export class AudioEngine {
     return ((Math.atan2(im, re) * 180 / Math.PI) % 360 + 360) % 360;
   }
 
+  // 캡처 샘플로 소음의 절대 위상 측정: x(t) ≈ A·cos(2πf·t + φ)의 φ(deg)
+  computeNoisePhase(freq) {
+    if (!this.capChunks || !this.capChunks.length) return null;
+    const sr = this.ctx.sampleRate;
+    let re = 0, im = 0, n = 0;
+    for (const ch of this.capChunks) {
+      const base = ch.f, d = ch.d;
+      for (let i = 0; i < d.length; i++) {
+        const ang = 2 * Math.PI * freq * (base + i) / sr;
+        re += d[i] * Math.cos(ang);
+        im -= d[i] * Math.sin(ang);
+        n++;
+      }
+    }
+    if (n < sr * 1.2) return null;
+    const amp = 2 * Math.hypot(re, im) / n;
+    if (amp < 5e-5) return null;
+    return ((Math.atan2(im, re) * 180 / Math.PI) % 360 + 360) % 360;
+  }
+
   teardown() {
     this.micOff();
     this.stopMasking();

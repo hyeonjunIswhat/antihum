@@ -26,8 +26,9 @@ async function startSmart() {
 async function acceptHum() {
   if (!pipe) return;
   try {
-    if (pipe.state === 'hold') pipe.addMask();   // 상쇄 후: 마스킹 추가
-    else await pipe.addCancel();                  // 마스킹 중: 상쇄 추가
+    if (pipe.suggestAction === 'refine') await pipe.manualRefine();
+    else if (pipe.state === 'hold') pipe.addMask();
+    else await pipe.addCancel();
   } catch (e) { ui.error('오류: ' + e.message); }
 }
 

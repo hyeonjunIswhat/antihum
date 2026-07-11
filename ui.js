@@ -25,6 +25,7 @@ export const ui = {
     this.els.ring.className = 'ring' + (state && state !== 'idle' ? ' ' + state : '');
   },
   tapButton(show){ this.els.tapBtn.style.display = show ? 'block' : 'none'; },
+  tapLabel(t){ this.els.tapBtn.textContent = t; },
   showHumSuggest(f, text){
     if (text) this.els.humSuggest.innerHTML = '💡 ' + text;
     this.els.humSuggest.style.display = 'block';
