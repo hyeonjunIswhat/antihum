@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>AntiHum</title>
+<link rel="stylesheet" href="./style.css">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#101418">
+</head>
+<body>
+
+<h1>Anti<span>Hum</span> <small style="font-size:11px;color:#7b8894;">v2 시분할</small></h1>
+<div class="status" id="status">에어컨 켜고 [시작] — 귀로 캘리브레이션합니다</div>
+
+<div class="panel">
+  <div class="freq" id="freq">— Hz</div>
+  <div class="flabel" id="flabel">타겟 주파수</div>
+  <div class="readout" style="margin-top:16px;">
+    <span>위상 <b id="phaseRO">—</b></span>
+  </div>
+  <div class="stage" id="stage"></div>
+</div>
+
+<button id="tapBtn" style="display:none;width:100%;margin-top:14px;padding:22px;
+  font-size:19px;background:#d9a441;color:#1a1204;border:none;border-radius:12px;">
+  🔇 지금 조용함
+</button>
+
+<div class="btns">
+  <button id="startBtn">시작</button>
+  <button id="pauseBtn" disabled>대기</button>
+  <button id="stopBtn" disabled>종료</button>
+</div>
+<div class="err" id="err"></div>
+
+<div class="note">
+  동작 원리(v2): iOS는 마이크 사용 중 웹 오디오 출력을 차단하므로, 마이크와 출력을 <b>시분할</b>합니다 — ① 마이크로 3초 소음 측정 후 완전 해제 ② 정상 볼륨으로 안티톤 재생 ③ 위상이 천천히 회전하는 동안 <b>귀로 듣고</b> 가장 조용한 순간 [지금 조용함] 탭 (2회: 거친→미세) ④ 고정·유지, 90초마다 주파수 자동 재확인.<br><br>
+  음량 조절 = 측면 볼륨 버튼. 아이폰과 스피커를 청취 위치 근처에 두세요. 상쇄는 저주파 웅웅 성분에서, 듣는 위치 주변에서만 체감됩니다.
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
