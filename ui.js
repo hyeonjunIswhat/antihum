@@ -17,6 +17,9 @@ export const ui = {
     this.els.freq.classList.toggle('on', !!locked);
     this.els.flabel.textContent = f > 0 ? 'Hz' : 'READY';
   },
+  reduction(db){
+    if (this.els.redRO) this.els.redRO.textContent = (db > 0 ? '-' + db.toFixed(1) : '0.0') + ' dB';
+  },
   phase(d){
     this.els.phaseRO.textContent = d == null ? '' : '위상 ' + d.toFixed(0) + '°';
     this.els.ringDot.style.transform = 'rotate(' + (d || 0) + 'deg) translateY(-105px)';

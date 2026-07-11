@@ -63,8 +63,23 @@ export class AutoPipeline {
     await this.e.micOn();
     await sleep(400);
     const m = await this.measureSpectrum(2600);
+    if (!m || this.aborted) { this.e.micOff(); return; }
+
+    // 토널 타겟이면: 마이크 켠 채 폐루프 가용성 판정 (유선 연결 시 동시 측정이 되는 경우가 있음)
+    if (m.prom >= 10 && m.tonalFreq >= 150 && m.tonalFreq <= 500) {
+      if (this.ui.screen) this.ui.screen('cancel');
+      this.ui.freq(m.tonalFreq, true);
+      this.ui.stage('동시 측정 가능 여부 판정 중…');
+      const probe = await this.probeClosedLoop(m.tonalFreq);
+      if (this.aborted) { this.e.micOff(); return; }
+      if (probe.ok) {
+        this.ui.status('마이크가 안티톤을 실측함(Δ' + probe.delta.toFixed(1) + 'dB) — 정석 룸보정 모드');
+        await this.runClosedLoop(m.tonalFreq, probe.base, minutes);
+        return; // 폐루프 모드는 마이크 유지
+      }
+      this.ui.status('동시 측정 불가 — 예측(시분할) 모드로 진행');
+    }
     this.e.micOff();
-    if (!m || this.aborted) return;
 
     const mean = m.bands.reduce((a, b) => a + b, 0) / 4;
     this.lastShape = m.bands.map(v => Math.max(-10, Math.min(10, (v - mean) * 0.8)));
@@ -149,6 +164,114 @@ export class AutoPipeline {
     }, minutes * 60000);
   }
 
+  // ===== 폐루프(마이크 실측) 모드 =====
+  async sampleRes(ms) { // 마이크 켜진 상태에서 타겟 주파수 잔류 평균
+    const vals = []; const t0 = performance.now();
+    while (performance.now() - t0 < ms) {
+      vals.push(this.e.measureResidualOnce());
+      await sleep(50);
+      if (this.aborted) return 0;
+    }
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }
+
+  // 마이크 켠 채 안티톤 ON/OFF 비교 → 동시 측정 가능 여부 판정
+  async probeClosedLoop(freq) {
+    this.e.setFreq(freq);
+    this.e.applyMaster(0);
+    await sleep(400);
+    const off = await this.sampleRes(700);
+    // 위상 2개로 검사 — 한 위상이 우연히 소음과 상쇄돼도 다른 위상에선 반드시 차이 발생
+    let delta = 0;
+    for (const ph of [0, 90]) {
+      this.e.setPhase(ph);
+      this.e.applyMaster(0.5);
+      await sleep(350);
+      const on = await this.sampleRes(600);
+      if (this.aborted) break;
+      delta = Math.max(delta, Math.abs(on - off));
+    }
+    this.e.applyMaster(0);
+    await sleep(300);
+    return { ok: delta >= 4, base: off, delta };
+  }
+
+  // 리시버식 자동 보정: 마이크가 잔류를 실측하며 위상/볼륨 스스로 탐색
+  async runClosedLoop(freq, baseDb, minutes) {
+    this.mode = 'cancel';
+    this.state = 'closed';
+    this.ui.ring('sweep');
+    this.ui.stage('룸보정 중 — 마이크가 직접 들으며 스스로 맞춥니다 (탭 불필요)');
+
+    // 거친 위상 스캔 (10°)
+    this.e.applyMaster(0.4);
+    let best = { deg: 0, level: Infinity };
+    for (let d = 0; d < 360; d += 10) {
+      this.e.setPhase(d); this.ui.phase(d);
+      await sleep(120);
+      const r = await this.sampleRes(180);
+      if (this.aborted) return;
+      this.ui.reduction(baseDb - r);
+      if (r < best.level) best = { deg: d, level: r };
+    }
+    // 정밀 (±10°, 2°)
+    let fine = best;
+    for (let d = best.deg - 10; d <= best.deg + 10; d += 2) {
+      const dd = ((d % 360) + 360) % 360;
+      this.e.setPhase(dd); this.ui.phase(dd);
+      await sleep(100);
+      const r = await this.sampleRes(160);
+      if (this.aborted) return;
+      if (r < fine.level) fine = { deg: dd, level: r };
+    }
+    this.e.setPhase(fine.deg); this.ui.phase(fine.deg);
+    // 볼륨 자동
+    let bestV = { v: 0.4, level: fine.level };
+    for (let v = 0.1; v <= 0.85; v += 0.05) {
+      this.e.applyMaster(v);
+      await sleep(120);
+      const r = await this.sampleRes(200);
+      if (this.aborted) return;
+      if (r < bestV.level) bestV = { v, level: r };
+      else if (v > bestV.v && r > bestV.level + 3) break; // 최적점 지난 뒤에만 조기 종료
+    }
+    this.e.applyMaster(bestV.v);
+    this.cancelVol = bestV.v;
+    let bestDb = bestV.level;
+    const red = baseDb - bestDb;
+    this.state = 'hold';
+    this.ui.ring('hold');
+    this.ui.reduction(red);
+    this.ui.stage('룸보정 완료 — 마이크 실측 감쇄 ' + red.toFixed(1) + ' dB, 상시 추적 중');
+    this.ui.status('폐루프 자동 상쇄: ' + freq.toFixed(1) + ' Hz · 실측 기반');
+    this.armTimer(minutes);
+
+    // 상시 힐클라임 + 악화 감시 (사용자 개입 0)
+    let worse = 0;
+    while (this.running && !this.aborted) {
+      if (this.paused) { await sleep(300); continue; }
+      const cur = await this.sampleRes(400);
+      if (this.aborted) break;
+      this.ui.reduction(baseDb - cur);
+      if (cur > bestDb + 6) worse++; else worse = 0;
+      if (worse >= 4) { // 소음 변화 → 전체 재보정
+        this.ui.stage('소음 변화 감지 — 자동 재보정');
+        return this.runClosedLoop(freq, baseDb, 0);
+      }
+      for (const delta of [2, -2]) {
+        if (this.paused || this.aborted || !this.running) break;
+        const orig = this.e.phaseDeg;
+        this.e.setPhase(orig + delta);
+        await sleep(80);
+        const r = await this.sampleRes(260);
+        if (r < cur - 0.4) { if (r < bestDb) bestDb = r; this.ui.phase(this.e.phaseDeg); break; }
+        this.e.setPhase(orig);
+        await sleep(60);
+      }
+      await sleep(1200);
+    }
+  }
+
   // ===== 셀프보정 수학 =====
   // 소음 x(t)=A·cos(2πft+φm) 상쇄 조건: 안티 위상 φa = 360f·t0 + φm + 270 + 360f·τ (mod 360)
   antiPhaseFor(f, phiM, tauSec) {
@@ -167,6 +290,114 @@ export class AutoPipeline {
   }
 
   // 존재 확인 펄스: 켬1초/끔1초 반복하며 볼륨 상승 — 웅 변화가 느껴지는 순간 탭 → 그 볼륨 확정
+  // ===== 폐루프(마이크 실측) 모드 =====
+  async sampleRes(ms) { // 마이크 켜진 상태에서 타겟 주파수 잔류 평균
+    const vals = []; const t0 = performance.now();
+    while (performance.now() - t0 < ms) {
+      vals.push(this.e.measureResidualOnce());
+      await sleep(50);
+      if (this.aborted) return 0;
+    }
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }
+
+  // 마이크 켠 채 안티톤 ON/OFF 비교 → 동시 측정 가능 여부 판정
+  async probeClosedLoop(freq) {
+    this.e.setFreq(freq);
+    this.e.applyMaster(0);
+    await sleep(400);
+    const off = await this.sampleRes(700);
+    // 위상 2개로 검사 — 한 위상이 우연히 소음과 상쇄돼도 다른 위상에선 반드시 차이 발생
+    let delta = 0;
+    for (const ph of [0, 90]) {
+      this.e.setPhase(ph);
+      this.e.applyMaster(0.5);
+      await sleep(350);
+      const on = await this.sampleRes(600);
+      if (this.aborted) break;
+      delta = Math.max(delta, Math.abs(on - off));
+    }
+    this.e.applyMaster(0);
+    await sleep(300);
+    return { ok: delta >= 4, base: off, delta };
+  }
+
+  // 리시버식 자동 보정: 마이크가 잔류를 실측하며 위상/볼륨 스스로 탐색
+  async runClosedLoop(freq, baseDb, minutes) {
+    this.mode = 'cancel';
+    this.state = 'closed';
+    this.ui.ring('sweep');
+    this.ui.stage('룸보정 중 — 마이크가 직접 들으며 스스로 맞춥니다 (탭 불필요)');
+
+    // 거친 위상 스캔 (10°)
+    this.e.applyMaster(0.4);
+    let best = { deg: 0, level: Infinity };
+    for (let d = 0; d < 360; d += 10) {
+      this.e.setPhase(d); this.ui.phase(d);
+      await sleep(120);
+      const r = await this.sampleRes(180);
+      if (this.aborted) return;
+      this.ui.reduction(baseDb - r);
+      if (r < best.level) best = { deg: d, level: r };
+    }
+    // 정밀 (±10°, 2°)
+    let fine = best;
+    for (let d = best.deg - 10; d <= best.deg + 10; d += 2) {
+      const dd = ((d % 360) + 360) % 360;
+      this.e.setPhase(dd); this.ui.phase(dd);
+      await sleep(100);
+      const r = await this.sampleRes(160);
+      if (this.aborted) return;
+      if (r < fine.level) fine = { deg: dd, level: r };
+    }
+    this.e.setPhase(fine.deg); this.ui.phase(fine.deg);
+    // 볼륨 자동
+    let bestV = { v: 0.4, level: fine.level };
+    for (let v = 0.1; v <= 0.85; v += 0.05) {
+      this.e.applyMaster(v);
+      await sleep(120);
+      const r = await this.sampleRes(200);
+      if (this.aborted) return;
+      if (r < bestV.level) bestV = { v, level: r };
+      else if (v > bestV.v && r > bestV.level + 3) break; // 최적점 지난 뒤에만 조기 종료
+    }
+    this.e.applyMaster(bestV.v);
+    this.cancelVol = bestV.v;
+    let bestDb = bestV.level;
+    const red = baseDb - bestDb;
+    this.state = 'hold';
+    this.ui.ring('hold');
+    this.ui.reduction(red);
+    this.ui.stage('룸보정 완료 — 마이크 실측 감쇄 ' + red.toFixed(1) + ' dB, 상시 추적 중');
+    this.ui.status('폐루프 자동 상쇄: ' + freq.toFixed(1) + ' Hz · 실측 기반');
+    this.armTimer(minutes);
+
+    // 상시 힐클라임 + 악화 감시 (사용자 개입 0)
+    let worse = 0;
+    while (this.running && !this.aborted) {
+      if (this.paused) { await sleep(300); continue; }
+      const cur = await this.sampleRes(400);
+      if (this.aborted) break;
+      this.ui.reduction(baseDb - cur);
+      if (cur > bestDb + 6) worse++; else worse = 0;
+      if (worse >= 4) { // 소음 변화 → 전체 재보정
+        this.ui.stage('소음 변화 감지 — 자동 재보정');
+        return this.runClosedLoop(freq, baseDb, 0);
+      }
+      for (const delta of [2, -2]) {
+        if (this.paused || this.aborted || !this.running) break;
+        const orig = this.e.phaseDeg;
+        this.e.setPhase(orig + delta);
+        await sleep(80);
+        const r = await this.sampleRes(260);
+        if (r < cur - 0.4) { if (r < bestDb) bestDb = r; this.ui.phase(this.e.phaseDeg); break; }
+        this.e.setPhase(orig);
+        await sleep(60);
+      }
+      await sleep(1200);
+    }
+  }
+
   // ===== 셀프보정 수학 =====
   // 소음 x(t)=A·cos(2πft+φm) 상쇄 조건: 안티 위상 φa = 360f·t0 + φm + 270 + 360f·τ (mod 360)
   antiPhaseFor(f, phiM, tauSec) {
