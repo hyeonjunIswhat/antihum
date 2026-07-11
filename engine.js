@@ -127,7 +127,21 @@ export class AudioEngine {
     this.gCos.gain.setTargetAtTime(Math.sin(phi), t, 0.02);
   }
   applyMaster(level) {
+    this.targetLevel = level;
     if (this.master) this.master.gain.setTargetAtTime(level, this.ctx.currentTime, 0.05);
+  }
+
+  vitals() {
+    return {
+      ctx: this.ctx ? this.ctx.state : '없음',
+      el: this.audioEl ? (this.audioEl.paused ? '일시정지' : '재생') : '없음',
+      lvl: this.targetLevel || 0,
+      mic: this.stream ? 'ON' : 'OFF',
+    };
+  }
+  recover() {
+    try { this.ctx.resume(); } catch (_) {}
+    if (this.audioEl) this.audioEl.play().catch(() => {});
   }
   measureResidualOnce() {
     if (!this.analyser) return -80;

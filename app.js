@@ -4,6 +4,28 @@ import { AutoPipeline, VOL } from './pipeline.js';
 import { ui } from './ui.js';
 
 let engine = null, pipe = null, wakeLock = null;
+let watchdog = null, lastVitals = '', beatCount = 0;
+
+function startWatchdog() {
+  stopWatchdog();
+  watchdog = setInterval(() => {
+    if (!engine || !engine.ctx || !pipe) return;
+    const v = engine.vitals();
+    const line = '오디오 ' + v.ctx + ' · 재생요소 ' + v.el + ' · 출력레벨 ' + v.lvl.toFixed(2) + ' · 마이크 ' + v.mic;
+    const shouldPlay = v.lvl > 0.01 && !pipe.paused && v.mic === 'OFF';
+    const bad = shouldPlay && (v.ctx !== 'running' || v.el === '일시정지');
+    if (bad) {
+      engine.recover();
+      ui.log('⚠️ 출력 이상 감지 [' + line + '] → 자동 복구 시도');
+    } else if (line !== lastVitals) {
+      ui.log('상태 변화: ' + line);
+    } else if (++beatCount % 15 === 0) {
+      ui.log('정상 동작 중: ' + line);   // 30초마다 생존 신호
+    }
+    lastVitals = line;
+  }, 2000);
+}
+function stopWatchdog() { if (watchdog) { clearInterval(watchdog); watchdog = null; } }
 
 async function boot(mode) {
   ui.error('');
@@ -13,6 +35,8 @@ async function boot(mode) {
   pipe.running = true;
   try { wakeLock = await navigator.wakeLock.request('screen'); } catch (_) {}
   ui.screen(mode);
+  startWatchdog();
+  ui.log && ui.log('세션 시작 — 워치독 가동(2초 주기 감시·자동복구)');
 }
 
 async function startSmart() {
@@ -49,6 +73,7 @@ function pause() {
 }
 
 function stop() {
+  stopWatchdog();
   if (pipe) { pipe.aborted = true; pipe.running = false; pipe.teardownTimers(); pipe.tap(); }
   if (wakeLock) { try { wakeLock.release(); } catch (_) {} wakeLock = null; }
   if (engine) engine.teardown();
