@@ -75,15 +75,19 @@ export class AutoPipeline {
       this.e.setFreq(m.tonalFreq);
       this.ui.freq(m.tonalFreq, true);
       this.ui.status('웅— 소리(' + m.tonalFreq.toFixed(0) + 'Hz)가 주된 소음 — 역위상으로 지웁니다');
-      // 확인음: 타겟 주파수를 1.2초 크게 — 이 소리가 스피커에서 들려야 정상
-      this.ui.stage('확인음 재생 — 웅— 소리가 스피커에서 들려야 합니다');
-      this.e.applyMaster(0.4);
-      await sleep(1200);
-      this.e.applyMaster(0);
-      await sleep(400);
-      if (this.aborted) return;
-      if (m.tonalFreq < 150)
-        this.ui.error('참고: ' + m.tonalFreq.toFixed(0) + 'Hz는 매우 낮은 소리라 작은 스피커에서는 확인음이 안 들릴 수 있습니다. 안 들렸다면 저음이 되는 스피커가 필요합니다.');
+      // 3단 진단음: 높은 삐(880) → 중간 삐(440) → 타겟 웅 — 어디까지 들리는지로 원인 판별
+      this.ui.stage('진단음 3개: 삐(높음) → 삐(중간) → 웅(타겟) — 몇 개 들리는지 세어보세요');
+      for (const [f, ms] of [[880, 600], [440, 600], [m.tonalFreq, 1200]]) {
+        this.e.setFreq(f);
+        this.e.applyMaster(0.5);
+        await sleep(ms);
+        this.e.applyMaster(0);
+        await sleep(300);
+        if (this.aborted) return;
+      }
+      this.e.setFreq(m.tonalFreq);
+      this.ui.error('진단: 삐 2개만 들리고 웅이 안 들리면 = 스피커가 저음 재생 불가(하드웨어). '
+        + '3개 전부 안 들리면 = 출력 버그(알려주세요). 3개 다 들리면 = 정상, 계속 진행하세요.');
       const c = await this.coarseSweep();
       if (this.aborted) return;
       await this.fineSweep(c);
