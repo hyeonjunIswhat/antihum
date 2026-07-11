@@ -83,7 +83,7 @@ export class AutoPipeline {
       this.ui.status('동시 측정 불가 — 예측(시분할) 모드로 진행');
     }
     this.e.micOff();
-    LG(this.ui, '마이크 OFF — 이후 출력은 일반 재생 경로');
+    LG(this.ui, '마이크 OFF — 오디오 상태: ' + (this.e.ctx ? this.e.ctx.state : '?'));
 
     const mean = m.bands.reduce((a, b) => a + b, 0) / 4;
     this.lastShape = m.bands.map(v => Math.max(-10, Math.min(10, (v - mean) * 0.8)));
@@ -104,6 +104,8 @@ export class AutoPipeline {
         this.e.setPhase(phi); this.ui.phase(phi);
         this.cancelVol = prof.vol || 0.4;
         this.e.applyMaster(this.cancelVol);
+        LG(this.ui, '▶ 자동 조준 재생: ' + m.tonalFreq.toFixed(0) + 'Hz 볼륨 ' + this.cancelVol.toFixed(2)
+          + ' · 오디오 ' + (this.e.ctx ? this.e.ctx.state : '?') + ' — [소리 확인]으로 출력 생사 점검 가능');
         this.state = 'hold';
         this.ui.ring('hold');
         this.ui.stage('셀프보정 적용 — 저장된 학습값으로 자동 조준 완료');

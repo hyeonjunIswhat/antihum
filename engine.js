@@ -95,7 +95,23 @@ export class AudioEngine {
     if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
     this.analyser = null;
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
+    try { this.ctx.resume(); } catch (_) {}          // iOS가 세션 전환 때 정지시킨 컨텍스트 재개
     if (this.audioEl) this.audioEl.play().catch(() => {});
+  }
+
+  // 상시 확인음: 출력 경로 생사 확인용 440Hz 0.8초 (상쇄 톤과 독립)
+  beep() {
+    try {
+      this.ctx.resume();
+      if (this.audioEl) this.audioEl.play().catch(() => {});
+      const o = this.ctx.createOscillator(); o.type = 'sine'; o.frequency.value = 440;
+      const g = this.ctx.createGain(); g.gain.value = 0.5;
+      o.connect(g); g.connect(this.ctx.destination);
+      if (this.msDest) g.connect(this.msDest);
+      o.start();
+      setTimeout(() => { try { o.stop(); o.disconnect(); g.disconnect(); } catch (_) {} }, 800);
+      return this.ctx.state;
+    } catch (e) { return 'error:' + e.message; }
   }
 
   // ---- 험 상쇄 ----

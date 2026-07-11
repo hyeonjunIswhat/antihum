@@ -66,6 +66,15 @@ window.addEventListener('DOMContentLoaded', () => {
   ui.els.tapBtn.addEventListener('click', () => pipe && pipe.tap());
   ui.els.pauseBtn.addEventListener('click', pause);
   ui.els.stopBtn.addEventListener('click', stop);
+  ui.els.beepBtn.addEventListener('click', () => {
+    if (!engine || !engine.ctx) { ui.log && ui.log('소리 확인: 엔진 꺼짐 — [지금 조용하게]로 시작 후 사용'); return; }
+    const st = engine.beep();
+    ui.log && ui.log('🔔 확인음 재생 시도 — 오디오 상태: ' + st + ' (삐가 들려야 정상)');
+  });
+  ui.els.resetBtn.addEventListener('click', () => {
+    try { localStorage.removeItem('antihum_profile'); } catch (_) {}
+    ui.log && ui.log('학습값 삭제됨 — 다음 실행은 처음부터 캘리브레이션');
+  });
   ui.els.lvl.addEventListener('input', () => {
     const v = parseFloat(ui.els.lvl.value);
     ui.els.lvlRO.textContent = Math.round(v * 100) + '%';
