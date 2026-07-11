@@ -17,6 +17,16 @@ export const ui = {
     this.els.freq.classList.toggle('on', !!locked);
     this.els.flabel.textContent = f > 0 ? 'Hz' : 'READY';
   },
+  log(m){
+    if (!this.els.log) return;
+    const t = new Date();
+    const ts = String(t.getMinutes()).padStart(2,'0') + ':' + String(t.getSeconds()).padStart(2,'0');
+    const line = document.createElement('div');
+    line.textContent = ts + '  ' + m;
+    this.els.log.appendChild(line);
+    while (this.els.log.childNodes.length > 16) this.els.log.removeChild(this.els.log.firstChild);
+    this.els.log.scrollTop = this.els.log.scrollHeight;
+  },
   reduction(db){
     if (this.els.redRO) this.els.redRO.textContent = (db > 0 ? '-' + db.toFixed(1) : '0.0') + ' dB';
   },

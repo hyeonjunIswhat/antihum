@@ -3,6 +3,7 @@
 import { detectFreqOnce, bandLevels, tonalPeak, tonalPeakInRange, sleep, median } from './dsp.js';
 
 export const VOL = 0.4;
+const LG = (u, m) => { if (u.log) u.log(m); };
 const BANDS = [[40, 160], [160, 500], [500, 1200], [1200, 3000]];
 
 export class AutoPipeline {
@@ -59,6 +60,7 @@ export class AutoPipeline {
     this.mode = 'mask'; this.state = 'measure';
     this.ui.ring('measure');
     this.ui.stage('소음을 3초 듣는 중…');
+    LG(this.ui, '마이크 ON — 3초 측정 (출력 무음)');
     this.e.applyMaster(0);
     await this.e.micOn();
     await sleep(400);
@@ -70,6 +72,7 @@ export class AutoPipeline {
       if (this.ui.screen) this.ui.screen('cancel');
       this.ui.freq(m.tonalFreq, true);
       this.ui.stage('동시 측정 가능 여부 판정 중…');
+      LG(this.ui, '타겟 ' + m.tonalFreq.toFixed(1) + 'Hz (돌출 +' + m.prom.toFixed(0) + 'dB)');
       const probe = await this.probeClosedLoop(m.tonalFreq);
       if (this.aborted) { this.e.micOff(); return; }
       if (probe.ok) {
@@ -80,6 +83,7 @@ export class AutoPipeline {
       this.ui.status('동시 측정 불가 — 예측(시분할) 모드로 진행');
     }
     this.e.micOff();
+    LG(this.ui, '마이크 OFF — 이후 출력은 일반 재생 경로');
 
     const mean = m.bands.reduce((a, b) => a + b, 0) / 4;
     this.lastShape = m.bands.map(v => Math.max(-10, Math.min(10, (v - mean) * 0.8)));
@@ -92,6 +96,7 @@ export class AutoPipeline {
 
       // ===== 셀프보정 경로: 학습된 τ가 있고 위상 측정 성공 → 탭 0회 =====
       if (prof && prof.tau != null && Math.abs(prof.f - m.tonalFreq) < 4 && this.noisePhase != null) {
+        LG(this.ui, '저장된 τ 프로필 적용 — 무탭 자동 조준');
         this.mode = 'cancel';
         this.e.setFreq(m.tonalFreq);
         this.ui.freq(m.tonalFreq, true);
@@ -115,6 +120,7 @@ export class AutoPipeline {
       this.ui.status('웅— 소리(' + m.tonalFreq.toFixed(0) + 'Hz)가 주된 소음 — 역위상으로 지웁니다');
       // 출력 체크 (짧은 삐 2개)
       this.ui.stage('출력 체크 — 삐, 삐');
+      LG(this.ui, '▶ 880Hz·440Hz 삐 재생 (볼륨 0.4) — 들려야 정상');
       for (const f of [880, 440]) {
         this.e.setFreq(f);
         this.e.applyMaster(0.4);
@@ -177,10 +183,12 @@ export class AutoPipeline {
 
   // 마이크 켠 채 안티톤 ON/OFF 비교 → 동시 측정 가능 여부 판정
   async probeClosedLoop(freq) {
+    LG(this.ui, '프로브 시작: 마이크 켠 채 ' + freq.toFixed(0) + 'Hz 켬/끔 비교');
     this.e.setFreq(freq);
     this.e.applyMaster(0);
     await sleep(400);
     const off = await this.sampleRes(700);
+    LG(this.ui, '출력OFF 기준: ' + off.toFixed(1) + ' dB');
     // 위상 2개로 검사 — 한 위상이 우연히 소음과 상쇄돼도 다른 위상에선 반드시 차이 발생
     let delta = 0;
     for (const ph of [0, 90]) {
@@ -193,7 +201,12 @@ export class AutoPipeline {
     }
     this.e.applyMaster(0);
     await sleep(300);
-    return { ok: delta >= 4, base: off, delta };
+    // 누설 판별: 공기 경로 픽업은 보통 5~45dB, 내부 전기 누설은 45dB+ (예전 실측 +90dB)
+    const acoustic = delta >= 5 && delta <= 45;
+    LG(this.ui, '프로브 Δ' + delta.toFixed(1) + 'dB → ' +
+      (delta > 45 ? '내부 누설로 판정(공기 아님) → 예측 모드' :
+       acoustic ? '공기 경로 확인 → 룸보정 모드' : '감지 안 됨 → 예측 모드'));
+    return { ok: acoustic, base: off, delta };
   }
 
   // 리시버식 자동 보정: 마이크가 잔류를 실측하며 위상/볼륨 스스로 탐색
@@ -202,6 +215,7 @@ export class AutoPipeline {
     this.state = 'closed';
     this.ui.ring('sweep');
     this.ui.stage('룸보정 중 — 마이크가 직접 들으며 스스로 맞춥니다 (탭 불필요)');
+    LG(this.ui, '▶ 룸보정: 마이크 유지 + ' + freq.toFixed(0) + 'Hz 재생하며 위상 자동 스캔');
 
     // 거친 위상 스캔 (10°)
     this.e.applyMaster(0.4);
@@ -303,10 +317,12 @@ export class AutoPipeline {
 
   // 마이크 켠 채 안티톤 ON/OFF 비교 → 동시 측정 가능 여부 판정
   async probeClosedLoop(freq) {
+    LG(this.ui, '프로브 시작: 마이크 켠 채 ' + freq.toFixed(0) + 'Hz 켬/끔 비교');
     this.e.setFreq(freq);
     this.e.applyMaster(0);
     await sleep(400);
     const off = await this.sampleRes(700);
+    LG(this.ui, '출력OFF 기준: ' + off.toFixed(1) + ' dB');
     // 위상 2개로 검사 — 한 위상이 우연히 소음과 상쇄돼도 다른 위상에선 반드시 차이 발생
     let delta = 0;
     for (const ph of [0, 90]) {
@@ -319,7 +335,12 @@ export class AutoPipeline {
     }
     this.e.applyMaster(0);
     await sleep(300);
-    return { ok: delta >= 4, base: off, delta };
+    // 누설 판별: 공기 경로 픽업은 보통 5~45dB, 내부 전기 누설은 45dB+ (예전 실측 +90dB)
+    const acoustic = delta >= 5 && delta <= 45;
+    LG(this.ui, '프로브 Δ' + delta.toFixed(1) + 'dB → ' +
+      (delta > 45 ? '내부 누설로 판정(공기 아님) → 예측 모드' :
+       acoustic ? '공기 경로 확인 → 룸보정 모드' : '감지 안 됨 → 예측 모드'));
+    return { ok: acoustic, base: off, delta };
   }
 
   // 리시버식 자동 보정: 마이크가 잔류를 실측하며 위상/볼륨 스스로 탐색
@@ -328,6 +349,7 @@ export class AutoPipeline {
     this.state = 'closed';
     this.ui.ring('sweep');
     this.ui.stage('룸보정 중 — 마이크가 직접 들으며 스스로 맞춥니다 (탭 불필요)');
+    LG(this.ui, '▶ 룸보정: 마이크 유지 + ' + freq.toFixed(0) + 'Hz 재생하며 위상 자동 스캔');
 
     // 거친 위상 스캔 (10°)
     this.e.applyMaster(0.4);
@@ -421,6 +443,7 @@ export class AutoPipeline {
     this.ui.stage('새 소리를 찾지 마세요 — 방의 웅— 소리가 1초 간격으로 커졌다/작아졌다 하면 그때 탭');
     this.ui.tapLabel('🔊 웅 소리가 울렁임');
     this.ui.tapButton(true);
+    LG(this.ui, '▶ 존재확인 펄스: ' + this.e.lockedFreq.toFixed(0) + 'Hz 1초 켬/끔, 볼륨 자동상승');
     const vols = [0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85];
     let picked = 0, done = false;
     const tapP = this.waitTap().then(() => { done = true; });
@@ -558,6 +581,7 @@ export class AutoPipeline {
     this.ui.stage('원래 웅— 소리가 40초 주기로 커졌다/작아졌다 합니다 — 가장 작아지는 순간 탭');
     this.ui.tapButton(true);
     this.e.applyMaster(this.cancelVol);
+    LG(this.ui, '▶ 위상 회전 시작: ' + this.e.lockedFreq.toFixed(0) + 'Hz 볼륨 ' + this.cancelVol.toFixed(2) + ' 연속 재생 중');
     const degPerTick = 0.9; // 9°/s → 40초 1회전
     let deg = this.e.phaseDeg;
     this.sweepTimer = setInterval(() => {

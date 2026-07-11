@@ -15,7 +15,7 @@
 
 <div class="brand">
   <h1>ANTI<b>HUM</b></h1>
-  <span class="tagline">에어컨 소음 완화 · <b style="color:#5adbb5;">BUILD 12</b></span>
+  <span class="tagline">에어컨 소음 완화 · <b style="color:#5adbb5;">BUILD 13</b></span>
 </div>
 <div class="status" id="status">소음을 3초 듣고, 그 결에 맞춰 조용하게 만듭니다</div>
 
@@ -70,6 +70,10 @@
 
 <button id="demoBtn">🧪 기능테스트 — 가짜 소음으로 상쇄 원리 검증</button>
 <div class="err" id="err"></div>
+
+<div id="log" style="margin-top:14px;background:#0a0d10;border:1px solid #232a33;border-radius:10px;
+  padding:10px 12px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;line-height:1.7;
+  color:#8a97a3;max-height:180px;overflow-y:auto;"></div>
 
 <div class="note">
   <b>원리</b> — iOS는 마이크 사용 중 웹 오디오 출력을 차단하므로, 측정(마이크 3초)과 재생을 시분할합니다. 마이크는 측정 순간에만 켜지고 즉시 해제됩니다.<br>
